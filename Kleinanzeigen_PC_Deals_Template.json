@@ -1,0 +1,494 @@
+{
+  "name": "Kleinanzeigen PC Deals - Wuerzburg (15min)",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "name": "Manual Test",
+      "position": [
+        -1184,
+        128
+      ],
+      "id": "pc-manual-test"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "name": "Every 15 minutes",
+      "position": [
+        -1184,
+        304
+      ],
+      "id": "pc-schedule-15m"
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json ?? {}; const rawText = result.text || result.output || result.response || result.answer || result.message?.content || \"\"; const body = String(rawText).trim(); if (!body || body.toUpperCase() === \"EMPTY\") return []; const NL = String.fromCharCode(10); const lines = body.replaceAll(String.fromCharCode(13), \"\").split(NL).map(x => x.trim()).filter(Boolean); const groups = {noBrainer: 0, good: 0, normal: 0}; let section = \"\"; const blocks = []; for (const line of lines) { const t = line.trim(); const u = t.toUpperCase(); if ((t.startsWith(\"#\") || t.startsWith(\"**\")) && u.includes(\"NO-BRAINER\")) { section = \"noBrainer\"; continue; } if ((t.startsWith(\"#\") || t.startsWith(\"**\")) && u.includes(\"GUTER DEAL\")) { section = \"good\"; continue; } if ((t.startsWith(\"#\") || t.startsWith(\"**\")) && u.includes(\"NORMALER DEAL\")) { section = \"normal\"; continue; } if ((t.startsWith(\"-\") || t.startsWith(\"**\")) && section) { groups[section]++; blocks.push({section, line: t.startsWith(\"-\") ? t : \"- \" + t}); } } const count = groups.noBrainer + groups.good + groups.normal; if (!blocks.length) return []; const labels = {noBrainer: \"### NO-BRAINER\", good: \"### GUTER DEAL\", normal: \"### NORMALER DEAL\"}; const maxBody = 1750; const packs = []; let pack = []; let packSections = new Set(); let packLength = 0; function flush() { if (pack.length) packs.push(pack.join(NL)); pack = []; packSections = new Set(); packLength = 0; } for (const block of blocks) { const addition = (!packSections.has(block.section) ? labels[block.section] + NL : \"\") + block.line + NL; if (pack.length && packLength + addition.length > maxBody) flush(); if (!packSections.has(block.section)) { pack.push(labels[block.section]); packSections.add(block.section); packLength += labels[block.section].length + NL.length; } pack.push(block.line); packLength += block.line.length + NL.length; } flush(); const totalParts = packs.length; return packs.map((p, i) => { const content = \"Kleinanzeigen-PC-Deals | Wuerzburg +/- 30 km | Teil \" + (i + 1) + \"/\" + totalParts + NL + \"Neue Deals: \" + count + \" | No-Brainer: \" + groups.noBrainer + \" | Gute: \" + groups.good + \" | Normale: \" + groups.normal + NL + NL + p; return {json: {content, dealCount: count, categoryCounts: groups, part: i + 1, totalParts}}; });"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Format Discord PC alert",
+      "position": [
+        752,
+        208
+      ],
+      "id": "pc-format"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content, allowed_mentions: { parse: [] } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "name": "Discord - PC deals",
+      "position": [
+        992,
+        208
+      ],
+      "id": "pc-discord"
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData(\"global\");\nconst bootstrap = store.pcBootstrapDone !== true;\nstore.lastPcScanWasBootstrap = bootstrap;\nstore.pcBootstrapDone = true;\n\n// Set KLEINANZEIGEN_SEARCH_URL in your n8n environment to point this at a\n// different city/category search on kleinanzeigen.de. Grab it by doing a\n// search on the site yourself and copying the resulting URL (without the\n// \"?sortingField=...\" part, that gets added automatically).\n// Default below = \"PCs\" category, Wuerzburg +/- 30km.\nconst defaultUrl = \"https://www.kleinanzeigen.de/s-pcs/wuerzburg/c228l7667r30\";\nconst baseUrl = ($env.KLEINANZEIGEN_SEARCH_URL || defaultUrl).replace(/\\?.*$/, \"\").replace(/\\/$/, \"\");\nconst segments = baseUrl.split(\"/\");\nconst lastSegment = segments.pop();\n\nfunction pageUrl(page) {\n  const parts = page > 1 ? [...segments, `seite:${page}`, lastSegment] : [...segments, lastSegment];\n  return parts.join(\"/\") + \"?sortingField=SORTING_DATE\";\n}\n\nconst urls = [pageUrl(1)];\nif (bootstrap) urls.push(pageUrl(2), pageUrl(3));\n\nreturn urls.map((scanUrl, index) => ({json:{scanUrl, page:index + 1, bootstrap}}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Select Kleinanzeigen scan pages",
+      "id": "pc-select-scan-pages",
+      "position": [
+        -944,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.scanUrl}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; n8n PC deal monitor)"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json,text/html,application/xhtml+xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "name": "Kleinanzeigen - dynamic scan",
+      "id": "pc-dynamic-search",
+      "position": [
+        -704,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const inputs = $input.all().map(i => i.json);\nfunction decode(s) {\n  return String(s || \"\").replace(/&nbsp;/gi,\" \").replace(/&amp;/gi,\"&\").replace(/&quot;/gi,'\"').replace(/&#x2F;/gi,\"/\").replace(/&#x27;/gi,\"'\").replace(/&#(\\d+);/g,(_,n)=>String.fromCharCode(Number(n))).replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCharCode(parseInt(n,16)));\n}\nfunction clean(s){return decode(String(s||\"\")).replace(/<br\\s*\\/?>/gi,\" \").replace(/<[^>]*>/g,\" \").replace(/\\s+/g,\" \").trim();}\nfunction price(s){const m=String(s||\"\").match(/[0-9][0-9.,]*/);if(!m)return 0;let v=m[0];if(v.includes(\",\"))v=v.split(\".\").join(\"\").replace(\",\",\".\");return Number(v)||0;}\nfunction canonical(link){const m=String(link||\"\").match(/(\\/s-anzeige\\/[^?#]+\\/[0-9]+-[0-9]+-[0-9]+)$/i);return m?\"https://www.kleinanzeigen.de\"+m[1]:\"\";}\nfunction attr(block,name){const m=block.match(new RegExp(name+'=\"([^\"]+)\"',\"i\"));return m?decode(m[1]):\"\";}\nfunction parseOne(raw){\n  let model=null; const possible=typeof raw?.data===\"string\"?raw.data:(raw?.data&&typeof raw.data===\"object\"?JSON.stringify(raw.data):\"\");\n  if(possible.trim().startsWith(\"{\")){try{model=JSON.parse(possible);}catch{}}\n  const rows=model?.result?.resultList;\n  if(Array.isArray(rows))return rows.map(r=>r.organicAdPreview).filter(Boolean).map(ad=>({id:String(ad.id||\"\"),url:canonical(ad.seoLink||ad.url||ad.link||\"\"),title:clean(ad.title),description:clean(ad.description),priceText:clean(ad.price),price:price(ad.price),location:[ad.locationName,ad.parentLocationName].filter(Boolean).join(\" \"),published:clean(ad.sortingDate),image:ad.imageList?.[0]?.xLargeUrl||\"\",source:\"kleinanzeigen.de\"})).filter(x=>x.id&&x.url&&x.title);\n  const html=typeof raw===\"string\"?raw:String(raw?.data??raw?.body??raw?.html??\"\"); if(!html||html.length<1000)return [];\n  const blocks=[...html.matchAll(/<article\\b[\\s\\S]*?<\\/article>/gi)].map(m=>m[0]).filter(b=>/data-adid=/i.test(b));\n  return blocks.map(block=>{const id=attr(block,\"data-adid\"),href=attr(block,\"data-href\"),title=clean((block.match(/<h2[^>]*>[\\s\\S]*?<a[^>]*>([\\s\\S]*?)<\\/a>/i)||[])[1]),description=clean((block.match(/aditem-main--middle--description[^>]*>([\\s\\S]*?)<\\/p>/i)||[])[1]),priceText=clean((block.match(/aditem-main--middle--price-shipping--price[^>]*>([\\s\\S]*?)<\\/p>/i)||[])[1]);return{id,url:canonical(href),title,description,priceText,price:price(priceText),location:\"\",published:\"\",image:attr(block,\"src\"),source:\"kleinanzeigen.de\"};}).filter(x=>x.id&&x.url&&x.title);\n}\nconst seen=new Set(),all=[];for(const input of inputs)for(const row of parseOne(input))if(!seen.has(row.id)){seen.add(row.id);all.push(row);}return all;\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Parse Kleinanzeigen results",
+      "id": "pc-parse-results",
+      "position": [
+        -464,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const items=$input.all().map(i=>i.json).filter(x=>x&&x.id),store=$getWorkflowStaticData(\"global\");store.seenListingIds=store.seenListingIds||{};const now=Date.now(),cutoff=now-45*24*60*60*1000,bootstrap=store.lastPcScanWasBootstrap===true,candidates=[];\nfor(const item of items){const text=(String(item.title||\"\")+\" \"+String(item.description||\"\")).toLowerCase(),excluded=/laptop|notebook|macbook|imac|monitor|pc[- ]?teile|ersatzteil|grafikkarte einzeln|ram einzeln|arbeitsspeicher einzeln|defekt|schrott|bastler|gesuch|suche/i.test(text),looks=/gaming|gamer|desktop|computer|komplettsystem|rechner|pc\\b|ryzen|threadripper|core\\s*i[3579]|gtx|rtx|radeon|\\brx\\s*\\d{3,4}/i.test(text);if(!excluded&&looks&&!store.seenListingIds[item.id])candidates.push(item);store.seenListingIds[item.id]=now;}\nfor(const[id,ts]of Object.entries(store.seenListingIds))if(Number(ts)<cutoff)delete store.seenListingIds[id];\nreturn candidates.slice(0,bootstrap?60:20).map(x=>({json:x}));\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "New relevant PC listings",
+      "id": "pc-new-relevant",
+      "position": [
+        -224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const listings=$input.all().map(i=>i.json).filter(x=>x&&x.id);if(!listings.length)return [];return[{json:{scanMode:$getWorkflowStaticData(\"global\").lastPcScanWasBootstrap?\"initial-3-pages\":\"normal-page-1\",checkedAt:new Date().toISOString(),listings:listings.map(x=>({id:String(x.id),url:String(x.url||\"\"),title:String(x.title||\"\"),description:String(x.description||\"\").slice(0,5000),price:Number(x.price||0),location:String(x.location||\"\"),published:String(x.published||\"\")}))}}];\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Bundle new PC listings",
+      "id": "pc-bundle-listings",
+      "position": [
+        32,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ `Du bist ein sehr guter Einkaufsberater fuer gebrauchte komplette Gaming-PCs. Bewerte immer das GESAMTE SYSTEM, nie einzelne Hardware als eigenen Deal. Erkenne CPU, GPU, RAM, DDR4/DDR5, SSD/NVMe, Mainboard und Netzteil aus Titel und Beschreibung selbst; unbekannte Modelle darfst du nicht aussortieren. Vergleiche Preis, Leistung, Plattform, Speicher, Zustand und fehlende Angaben. Sortiere alle Angebote nach dem besten Gesamtdeal und gib hoechstens die besten 10 zur Preispruefung weiter. Gib ausschliesslich valides JSON ohne Markdown zurueck: {\"deals\":[{\"id\":\"...\",\"url\":\"...\",\"title\":\"...\",\"description\":\"...\",\"price\":0,\"location\":\"...\",\"cpu\":\"...\",\"gpu\":\"...\",\"ramGB\":0,\"ddr\":\"...\",\"storage\":\"...\",\"score\":0,\"aiFairValue\":0,\"confidence\":0.0,\"category\":\"NO-BRAINER|GUTER DEAL|NORMALER DEAL|IGNORE\",\"reason\":\"...\",\"missing\":[]}]} . NO-BRAINER nur vorlaeufig, wenn das komplette System voraussichtlich mindestens 50 Prozent unter einem fairen Gebrauchtwert liegt; nicht allein wegen der GPU. url exakt unveraendert verwenden. INPUT: ` + JSON.stringify($json) }}",
+        "batching": {
+          "batchSize": 1,
+          "delayBetweenBatches": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.8,
+      "name": "AI - rank complete PC listings",
+      "id": "pc-ai-rank",
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const input=$json||{},raw=input.output??input.text??input.response??input.answer??input.message?.content??\"\",text=typeof raw===\"string\"?raw:JSON.stringify(raw),match=text.match(/\\{[\\s\\S]*\\}/);if(!match)return[];let parsed;try{parsed=JSON.parse(match[0]);}catch{return[];}const deals=Array.isArray(parsed)?parsed:(parsed.deals||parsed.shortlist||parsed.listings||[]);return deals.map(d=>({json:{id:String(d.id||\"\"),url:String(d.url||\"\"),title:String(d.title||\"\"),description:String(d.description||\"\"),price:Number(d.price||0),location:String(d.location||\"\"),cpu:String(d.cpu||\"unbekannt\"),gpu:String(d.gpu||\"unbekannt\"),ramGB:Number(d.ramGB||0),ddr:String(d.ddr||\"unbekannt\"),storage:String(d.storage||\"unbekannt\"),score:Math.round(Number(d.score??d.aiScore??0)),aiFairValue:Number(d.aiFairValue||0),confidence:Number(d.confidence||0),aiCategory:String(d.category||\"\"),reason:String(d.reason||\"\"),missing:Array.isArray(d.missing)?d.missing:[]}})).filter(x=>x.json.id&&x.json.url&&x.json.price>0&&!/ignore|komponent/i.test(x.json.aiCategory));\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Parse AI shortlist",
+      "id": "pc-parse-ai",
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const deals=$input.all().map(i=>i.json).filter(d=>d&&d.id),out=[];function known(v){return v&&!/unbekannt|unknown|n\\/a|nicht angegeben/i.test(String(v));}for(const deal of deals){const cs=[];if(known(deal.cpu))cs.push({type:\"cpu\",query:deal.cpu+\" Preis Deutschland kaufen\"});if(known(deal.gpu))cs.push({type:\"gpu\",query:deal.gpu+\" Preis Deutschland kaufen\"});if(Number(deal.ramGB)>0&&known(deal.ddr))cs.push({type:\"ram\",query:String(deal.ramGB)+\"GB \"+deal.ddr+\" RAM Preis Deutschland kaufen\"});if(known(deal.storage))cs.push({type:\"storage\",query:deal.storage+\" Preis Deutschland kaufen\"});for(const c of cs)out.push({json:{purpose:\"complete-system-validation\",listingId:deal.id,componentType:c.type,query:c.query,marketSearchUrl:\"https://html.duckduckgo.com/html/?q=\"+encodeURIComponent(c.query),deal}});}return out;\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Build live market checks",
+      "id": "pc-build-market",
+      "position": [
+        752,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.marketSearchUrl}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; n8n PC market validation)"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "name": "Live market price search",
+      "id": "pc-live-market",
+      "position": [
+        992,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const responses=$input.all(),metaItems=$(\"Build live market checks\").all().map(i=>i.json),groups=new Map();function dec(v){return String(v||\"\").replace(/&nbsp;/gi,\" \").replace(/&amp;/gi,\"&\").replace(/&quot;/gi,'\"').replace(/&#x20AC;/gi,\"?\").replace(/&#(\\d+);/g,(_,n)=>String.fromCharCode(Number(n))).replace(/<[^>]*>/g,\" \").replace(/\\s+/g,\" \").trim();}function num(v){let x=String(v||\"\").replace(/\\s/g,\"\");if(x.includes(\",\"))x=x.replace(/\\./g,\"\").replace(\",\",\".\");return Number(x);}function snap(body){const t=dec(body),ps=[...t.matchAll(/(\\d{1,4}(?:[.\\s]\\d{3})?(?:,\\d{2})?)\\s*(?:EUR)?/gi)].map(m=>num(m[1])).filter(v=>Number.isFinite(v)&&v>=8&&v<=5000),ok=/idealo\\.de|geizhals\\.de|amazon\\.de|mindfactory\\.de|alternate\\.de|notebooksbilliger\\.de|cyberport\\.de|caseking\\.de/i.test(t);if(!ok||!ps.length)return null;const vals=[...new Set(ps)].sort((a,b)=>a-b).slice(0,9);return{median:Math.round(vals[Math.floor(vals.length/2)]),samples:vals.slice(0,5),buyable:true};}for(let i=0;i<responses.length;i++){const m=metaItems[i];if(!m?.listingId||!m.deal)continue;const body=responses[i].json?.data??responses[i].json?.body??responses[i].json?.html??responses[i].json??\"\",s=snap(body);if(!groups.has(m.listingId))groups.set(m.listingId,{deal:m.deal,components:{},searches:[]});const g=groups.get(m.listingId);g.searches.push(m.marketSearchUrl);if(s)g.components[m.componentType]=s;}function clamp(v,a,b){return Math.max(a,Math.min(b,v));}return[...groups.values()].map(g=>{const d=g.deal,live=g.components,cov=Object.keys(live).length,ai=Number(d.aiFairValue||0),used={cpu:live.cpu?Math.round(live.cpu.median*.72):0,gpu:live.gpu?Math.round(live.gpu.median*.6):0,ram:live.ram?Math.round(live.ram.median*.7):0,storage:live.storage?Math.round(live.storage.median*.6):0},liveFair=Object.values(used).reduce((a,b)=>a+b,0)+75+70,fair=cov>=2?Math.max(liveFair,ai):ai,sav=fair>0?Math.round((1-Number(d.price||0)/fair)*100):0,score=clamp(Math.round(Number(d.score||0)+(cov>=2?Math.min(10,cov*2):-10)),0,100),retail=Object.values(live).reduce((s,x)=>s+Number(x.median||0),0);return{json:{...d,priceReference:{usedFairTotal:fair,liveRetailTotal:retail,livePriceCoverage:cov+\"/4\",liveMarket:live,liveCheckedAt:new Date().toISOString(),liveSources:g.searches},savingsPct:sav,score,marketOk:cov>=2&&fair>0,priceCheckStatus:cov>=2?\"verified\":\"insufficient-live-data\"}};});\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Aggregate live market prices",
+      "id": "pc-aggregate-market",
+      "position": [
+        1232,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "﻿const eligible=$input.all().map(i=>i.json).filter(x=>x&&x.marketOk&&x.score>=55);if(!eligible.length)return[];function cls(d){const c=Number(d.confidence||0);if(d.savingsPct>=50&&d.score>=80&&c>=.55)return\"NO-BRAINER\";if(d.savingsPct>=25&&d.score>=65)return\"GUTER DEAL\";if(d.savingsPct>=15)return\"NORMALER DEAL\";return null;}const classified=eligible.map(d=>({...d,category:cls(d)})).filter(x=>x.category).sort((a,b)=>b.score-a.score||b.savingsPct-a.savingsPct),noBrainer=classified.filter(x=>x.category===\"NO-BRAINER\").slice(0,3),good=classified.filter(x=>x.category===\"GUTER DEAL\").slice(0,4),normal=classified.filter(x=>x.category===\"NORMALER DEAL\").slice(0,3),deals=[...noBrainer,...good,...normal];return[{json:{checkedAt:new Date().toISOString(),radius:($env.SEARCH_AREA_LABEL || \"Wuerzburg +/- 30 km\"),dealCount:deals.length,categoryCounts:{noBrainer:noBrainer.length,good:good.length,normal:normal.length},deals}}];\r\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "name": "Keep only strong deals",
+      "id": "pc-keep-strong",
+      "position": [
+        1472,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ `Du bist ein erfahrener deutscher Gebraucht-PC-Kaeufer. Formuliere aus den verifizierten kompletten PC-Angeboten eine sehr kompakte Discord-Nachricht. Nutze nur komplette Systeme, keine Einzelteile. Teile die Treffer in NO-BRAINER, GUTER DEAL und NORMALER DEAL ein. Ein NO-BRAINER braucht mindestens 50 Prozent Ersparnis gegen den verifizierten fairen Gesamtwert. Verwende genau die drei Markdown-Ueberschriften ### NO-BRAINER, ### GUTER DEAL und ### NORMALER DEAL. Gib pro Treffer genau eine Zeile aus: - **Titel** | Preis | CPU/GPU | RAM und Speicher | fairer Gesamtwert | Ersparnis | exakter Kleinanzeigen-Link. Keine extra Begruendung und keine langen Texte. Die gesamte Nachricht muss unter 1700 Zeichen bleiben, damit kein Link abgeschnitten wird. Keine Suchseitenlinks erfinden. Wenn keine Treffer vorhanden sind, gib exakt EMPTY aus. INPUT: ` + JSON.stringify($json) }}",
+        "batching": {
+          "batchSize": 1,
+          "delayBetweenBatches": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.8,
+      "name": "AI - explain verified PC deals",
+      "id": "pc-ai-final",
+      "position": [
+        1712,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "openai/gpt-5.4-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "name": "OpenRouter Chat Model - GPT-5.4 mini",
+      "id": "pc-openrouter-model",
+      "position": [
+        272,
+        464
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "bCOc8QY0uMcir5pA",
+          "name": "OpenRouter API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Test": {
+      "main": [
+        [
+          {
+            "node": "Select Kleinanzeigen scan pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Select Kleinanzeigen scan pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Kleinanzeigen scan pages": {
+      "main": [
+        [
+          {
+            "node": "Kleinanzeigen - dynamic scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kleinanzeigen - dynamic scan": {
+      "main": [
+        [
+          {
+            "node": "Parse Kleinanzeigen results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Kleinanzeigen results": {
+      "main": [
+        [
+          {
+            "node": "New relevant PC listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New relevant PC listings": {
+      "main": [
+        [
+          {
+            "node": "Bundle new PC listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bundle new PC listings": {
+      "main": [
+        [
+          {
+            "node": "AI - rank complete PC listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - rank complete PC listings": {
+      "main": [
+        [
+          {
+            "node": "Parse AI shortlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI shortlist": {
+      "main": [
+        [
+          {
+            "node": "Build live market checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build live market checks": {
+      "main": [
+        [
+          {
+            "node": "Live market price search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live market price search": {
+      "main": [
+        [
+          {
+            "node": "Aggregate live market prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate live market prices": {
+      "main": [
+        [
+          {
+            "node": "Keep only strong deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep only strong deals": {
+      "main": [
+        [
+          {
+            "node": "AI - explain verified PC deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - explain verified PC deals": {
+      "main": [
+        [
+          {
+            "node": "Format Discord PC alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Discord PC alert": {
+      "main": [
+        [
+          {
+            "node": "Discord - PC deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model - GPT-5.4 mini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI - rank complete PC listings",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "AI - explain verified PC deals",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Europe/Berlin"
+  },
+  "meta": {},
+  "nodeGroups": [],
+  "id": "kleinanzeigen-pc-deals-template",
+  "tags": []
+}

@@ -1,27 +1,52 @@
-Kleinanzeigen AI Gaming-PC Deal Monitor
+# Release v1.0 – AI Kleinanzeigen Gaming PC Deal Monitor
 
-An automated n8n workflow that scans Kleinanzeigen every 15 minutes for complete gaming PCs.
+I'm excited to release the first public version of the **AI-powered Kleinanzeigen Gaming PC Deal Monitor**.
 
-Features
+This n8n workflow continuously scans new gaming PC listings from Kleinanzeigen and uses AI to determine whether they're actually good deals—not just listings with attractive titles.
 
-scans newest listings
-filters complete PCs
-AI detects CPU/GPU/RAM
-estimates used market value
-performs live web price validation
-ranks every listing
-sends only the best deals to Discord
+## Features
 
-Technologies
+* Automatic scan every 15 minutes
+* Detects complete desktop gaming PCs
+* Filters out laptops, single components, wanted ads, and irrelevant listings
+* AI extracts CPU, GPU, RAM, storage and other hardware information
+* Estimates a realistic used market value
+* Performs live market validation
+* Ranks every listing based on price and hardware
+* Classifies deals into:
 
-n8n
-OpenRouter
-GPT
-DuckDuckGo
-Discord Webhook
+  * 🟢 NO-BRAINER
+  * 🔵 GOOD DEAL
+  * ⚪ NORMAL DEAL
+* Sends compact Discord notifications
+* Fully built inside n8n
 
-Requirements
+## Requirements
 
-n8n
-OpenRouter API
-Discord Webhook
+* n8n
+* OpenRouter (or another OpenAI-compatible provider)
+* Discord Webhook
+* Internet connection for live price validation
+
+Configuration is handled through your own credentials and environment variables. No private API keys or webhooks are included in this repository.
+
+## Future Roadmap
+
+Planned improvements include:
+
+* Support for multiple cities
+* Multi-category monitoring
+* Better AI-based hardware recognition
+* Historical price tracking
+* Telegram support
+* Email notifications
+* Web dashboard with statistics
+* Automatic duplicate detection across regions
+
+## Feedback
+
+If you find bugs, have feature ideas, or want to improve the workflow, feel free to open an issue or submit a pull request.
+
+Contributions are always welcome.
+
+Thank you for checking out the project!

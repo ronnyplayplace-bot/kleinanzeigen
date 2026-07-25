@@ -31,7 +31,12 @@ Der Workflow merkt sich bereits gesehene Anzeigen-IDs (45 Tage) im internen n8n 
 
 ### 2. Workflow importieren
 1. In n8n: **Workflows -> Import from File** -> `Kleinanzeigen_PC_Deals_Template.json` auswählen.
-2. Öffne den Node **"OpenRouter Chat Model - GPT-5.4 mini"** und hinterlege deine eigene Credential (API-Key). Modellname kannst du dort ebenfalls anpassen.
+2. **API-Key hinterlegen** — der Key wird NICHT in die Workflow-Datei oder die .env eingetragen, sondern direkt in n8n als Credential:
+   - Doppelklick auf den Node **"OpenRouter Chat Model - GPT-5.4 mini"**
+   - Beim Feld "Credential to connect with" auf **"+ Create new credential"** klicken (die im Workflow referenzierte Credential existiert bei dir noch nicht, das ist normal)
+   - Deinen OpenRouter-API-Key eintragen (Key holen unter [openrouter.ai/keys](https://openrouter.ai/keys)) und speichern
+   - Willst du stattdessen z. B. direkt OpenAI nutzen: gleicher Weg, nur bei "Base URL" die OpenRouter-URL rauslöschen bzw. deinen Provider eintragen
+   - Modellname (`openai/gpt-5.4-mini`) kannst du im selben Node anpassen, je nachdem was dein Provider anbietet
 3. Environment-Variablen setzen (siehe `.env.example`):
    - `DISCORD_WEBHOOK_URL` — **erforderlich**
    - `KLEINANZEIGEN_SEARCH_URL` — optional, andere Stadt/Kategorie

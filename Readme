@@ -1,0 +1,27 @@
+Kleinanzeigen AI Gaming-PC Deal Monitor
+
+An automated n8n workflow that scans Kleinanzeigen every 15 minutes for complete gaming PCs.
+
+Features
+
+scans newest listings
+filters complete PCs
+AI detects CPU/GPU/RAM
+estimates used market value
+performs live web price validation
+ranks every listing
+sends only the best deals to Discord
+
+Technologies
+
+n8n
+OpenRouter
+GPT
+DuckDuckGo
+Discord Webhook
+
+Requirements
+
+n8n
+OpenRouter API
+Discord Webhook

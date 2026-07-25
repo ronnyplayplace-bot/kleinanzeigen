@@ -1,52 +1,66 @@
-# Release v1.0 – AI Kleinanzeigen Gaming PC Deal Monitor
+# Kleinanzeigen PC Deal Finder (n8n Workflow)
 
-I'm excited to release the first public version of the **AI-powered Kleinanzeigen Gaming PC Deal Monitor**.
+Ein n8n-Workflow, der alle 15 Minuten [kleinanzeigen.de](https://www.kleinanzeigen.de) nach gebrauchten Komplett-Gaming-PCs durchsucht, die Angebote per KI bewertet, die Bewertung gegen **live abgefragte Marktpreise** (Idealo, Geizhals, Mindfactory, Alternate, Notebooksbilliger, Cyberport, Caseking) gegenprüft und die besten Treffer automatisch in einen Discord-Kanal postet — sortiert nach `NO-BRAINER`, `GUTER DEAL` und `NORMALER DEAL`.
 
-This n8n workflow continuously scans new gaming PC listings from Kleinanzeigen and uses AI to determine whether they're actually good deals—not just listings with attractive titles.
+Standardmäßig auf "PCs in und um Würzburg (30 km)" konfiguriert, aber per ENV-Variable auf jede beliebige Stadt/Kategorie auf kleinanzeigen.de umstellbar — keine Bearbeitung des Workflows nötig.
 
-## Features
+## Wie es funktioniert
 
-* Automatic scan every 15 minutes
-* Detects complete desktop gaming PCs
-* Filters out laptops, single components, wanted ads, and irrelevant listings
-* AI extracts CPU, GPU, RAM, storage and other hardware information
-* Estimates a realistic used market value
-* Performs live market validation
-* Ranks every listing based on price and hardware
-* Classifies deals into:
+```
+Cron (15 min) / Manual Trigger
+  -> Kleinanzeigen durchsuchen (1 Seite normal, 3 Seiten beim ersten Lauf)
+  -> HTML/JSON parsen -> Listings extrahieren
+  -> Neue, noch nicht gesehene, thematisch passende Angebote filtern
+     (Komplettsysteme, keine Laptops/Einzelteile/Gesuche)
+  -> KI ordnet die besten 10 Angebote nach Preis/Leistung
+  -> Für jedes Angebot: Live-Marktpreise für CPU/GPU/RAM/Storage abfragen
+  -> Fairen Gesamtwert berechnen, Ersparnis in % ermitteln
+  -> Nur Deals mit >= 15% Ersparnis behalten, in 3 Kategorien einteilen
+  -> KI formuliert eine kompakte Discord-Nachricht
+  -> Nachricht (ggf. in mehrere Teile gesplittet) an Discord senden
+```
 
-  * 🟢 NO-BRAINER
-  * 🔵 GOOD DEAL
-  * ⚪ NORMAL DEAL
-* Sends compact Discord notifications
-* Fully built inside n8n
+Der Workflow merkt sich bereits gesehene Anzeigen-IDs (45 Tage) im internen n8n Static Data, damit du nicht wiederholt dieselben Deals gemeldet bekommst.
 
-## Requirements
+## Setup
 
-* n8n
-* OpenRouter (or another OpenAI-compatible provider)
-* Discord Webhook
-* Internet connection for live price validation
+### 1. Voraussetzungen
+- Ein n8n-Server (self-hosted, Docker oder n8n Cloud)
+- Ein Discord-Server mit einem Webhook (Server-Einstellungen -> Integrationen -> Webhooks -> Neuer Webhook)
+- Ein LLM-API-Zugang, der sich über den `n8n-nodes-langchain` "OpenAI-kompatiblen" Chat-Node ansprechen lässt — z. B. [OpenRouter](https://openrouter.ai) (im Workflow als Beispiel verwendet), oder direkt OpenAI/Azure/etc.
 
-Configuration is handled through your own credentials and environment variables. No private API keys or webhooks are included in this repository.
+### 2. Workflow importieren
+1. In n8n: **Workflows -> Import from File** -> `Kleinanzeigen_PC_Deals_Template.json` auswählen.
+2. Öffne den Node **"OpenRouter Chat Model - GPT-5.4 mini"** und hinterlege deine eigene Credential (API-Key). Modellname kannst du dort ebenfalls anpassen.
+3. Environment-Variablen setzen (siehe `.env.example`):
+   - `DISCORD_WEBHOOK_URL` — **erforderlich**
+   - `KLEINANZEIGEN_SEARCH_URL` — optional, andere Stadt/Kategorie
+   - `SEARCH_AREA_LABEL` — optional, Anzeigetext in der Discord-Nachricht
 
-## Future Roadmap
+   > ⚠️ Wichtig: n8n liest `$env.*` in Workflow-Expressions nur, wenn deine Instanz Zugriff auf Umgebungsvariablen hat. Bei **self-hosted n8n** (Docker/npm) einfach beim Start mitgeben, z. B. in `docker-compose.yml`:
+   > ```yaml
+   > environment:
+   >   - DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+   > ```
+   > Bei **n8n Cloud** funktioniert das standardmäßig nicht — dort musst du die Webhook-URL direkt im Node "Discord - PC deals" eintragen (nicht committen, wenn du dein n8n dann selbst öffentlich teilst!).
 
-Planned improvements include:
+4. Workflow aktivieren (Toggle oben rechts). Der "Manual Test"-Trigger-Node ist nur zum Testen einzelner Läufe da, ohne 15 Minuten zu warten.
 
-* Support for multiple cities
-* Multi-category monitoring
-* Better AI-based hardware recognition
-* Historical price tracking
-* Telegram support
-* Email notifications
-* Web dashboard with statistics
-* Automatic duplicate detection across regions
+### 3. Andere Stadt / Kategorie verwenden
+Auf kleinanzeigen.de selbst nach Kategorie + Ort + Radius suchen, die resultierende URL kopieren (alles **vor** `?sortingField=...`) und als `KLEINANZEIGEN_SEARCH_URL` setzen. Beispiel für "Gaming-PCs in Berlin":
+```
+KLEINANZEIGEN_SEARCH_URL=https://www.kleinanzeigen.de/s-pcs/berlin/c228l3331
+```
 
-## Feedback
+## Customization-Ideen
+- Andere Produktkategorien (Grafikkarten einzeln, Laptops, Fahrräder, ...) — dazu müssen die Keyword-Filter im Node **"New relevant PC listings"** und der KI-Prompt im Node **"AI - rank complete PC listings"** angepasst werden.
+- Statt Discord: Telegram-Bot-Node oder E-Mail-Node am Ende anhängen.
+- Andere Preisvergleichs-Quellen im Node **"Aggregate live market prices"** ergänzen (Regex-Liste der erlaubten Domains).
 
-If you find bugs, have feature ideas, or want to improve the workflow, feel free to open an issue or submit a pull request.
+## Wichtige Hinweise
+- **Rate-Limiting/ToS**: Das Scrapen von kleinanzeigen.de und den Preisvergleichsseiten via HTTP-Request ist nicht offiziell durch eine API abgesichert. Nutze den Workflow auf eigenes Risiko, für den persönlichen Gebrauch, mit vernünftigen Intervallen (15 min ist bewusst konservativ gewählt) und einem realistischen User-Agent. Bei Änderungen am HTML-Aufbau der Seiten kann das Parsing brechen.
+- **Keine Garantie auf Preisangaben**: Die "faire Wert"-Berechnung ist eine Heuristik aus KI-Einschätzung + Live-Marktpreisen, kein verbindliches Preisurteil.
+- **Kosten**: Pro Lauf werden mehrere LLM-Calls gemacht (Ranking + finale Formulierung). Bei häufigen neuen Treffern können die API-Kosten spürbar werden — je nach Modell.
 
-Contributions are always welcome.
-
-Thank you for checking out the project!
+## Lizenz
+MIT — nutzen, anpassen, weiterverbreiten wie du willst. Ein Link zurück zum Repo freut mich, ist aber keine Pflicht.
